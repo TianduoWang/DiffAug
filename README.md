@@ -1,6 +1,6 @@
-# DiffAug: Differential Data Augmentation for Contrastive Sentence Representation Learning
+# DiffAug: Differentiable Data Augmentation for Contrastive Sentence Representation Learning
 
-Our code is based on the [SimCSE](https://github.com/princeton-nlp/SimCSE)
+Our code is based on the [SimCSE](https://github.com/princeton-nlp/SimCSE).
 
 ## Install dependencies
 
