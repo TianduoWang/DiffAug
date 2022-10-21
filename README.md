@@ -2,6 +2,13 @@
 
 Our code is based on the [SimCSE](https://github.com/princeton-nlp/SimCSE).
 
+## Overview
+
+We propose a method that makes high-quality positives for contrastive sentence representation learning. A pivotal ingredient of our approach is the use of prefix that attached to a pre-trained language model, which allows for differentiable data augmentation during contrastive learning. Our method can be summarized in two steps: supervised prefix-tuning followed by joint contrastive fine-tuning with unlabeled or labeled examples. The following figure is an overview of the proposed two-stage training strategy.
+
+![](overview.png)
+
+
 ## Install dependencies
 
 First, install PyTorch on [the official website](https://pytorch.org). All our experiments are conducted with PyTorch v1.8.1 with CUDA v10.1. So you may use the following code to download the same PyTorch version:
@@ -73,7 +80,9 @@ The results are expected to be shown in the following format:
 We prepare two model checkpoints:
 - [diffaug-semisup-bert-base-uncased](https://huggingface.co/Tianduo/diffaug-semisup-bert-base-uncased)
 - [diffaug-sup-bert-base-uncased](https://huggingface.co/Tianduo/diffaug-sup-bert-base-uncased)
+
 Here is an example about how to evaluate them on STS tasks:
+
 ```bash
 python evaluation.py \
     --model_name_or_path Tianduo/diffaug-semisup-bert-base-uncased \
