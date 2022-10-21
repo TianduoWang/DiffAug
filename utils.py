@@ -34,18 +34,10 @@ def write_eval_args(model_args, train_args):
         eval_args['pooler'] = 'cls'
     return eval_args
 
+
 TEMPLATES = {
     "00": '*cls*_This_sentence_of_"*sent0*"_means*mask*.*sep+*',
-    "0": '*cls*_This_sentence_:_"*sent0*"_means*mask*.*sep+*',
-    "1": '*cls*_This_sentence_:_"_*sent0*_"_means_"_*mask*_".*sep+*',
-    "2": '*cls*_"_*mask*_"_means_"_*sent0*_"_._*sep+*',
-    "3": '*cls*_This_token_"_*mask*_"_means_"_*sent0*_"_._*sep+*',
-    "4": '*cls*_The_sentence_:_"_*mask*_"_means_"_*sent0*_"_._*sep+*',
-    "5": '*cls*_The_sentence_:_"_*mask*_"_has_the_meaning_of_"_*sent0*_".*sep+*',
-    "6": "*cls*_This_sentence_:_'_*sent0*_'_means*mask*.*sep+*",
-    "7": "*cls*_The_sentence_:_'_*sent0*_'_means*mask*.*sep+*",
-    "8": "*cls*_The_sentence_:_'_*sent0*_'_means_'_*mask*_'.*sep+*",
-    "9": "*cls*_The_sentence_:_'*mask*'_means_'_*sent0*_'.*sep+*",
+    "1": "*cls*_This_sentence_:_'_*sent0*_'_means*mask*.*sep+*",
 }
 
 

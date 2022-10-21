@@ -19,7 +19,7 @@ import random
 import json
 
 from datasets import load_dataset, set_progress_bar_enabled
-set_progress_bar_enabled(False)
+# set_progress_bar_enabled(False)
 
 from pathlib import Path
 import torch.distributed as dist
@@ -227,7 +227,7 @@ class DataTrainingArguments:
         },
     )
     preprocessing_num_workers: Optional[int] = field(
-        default=None,
+        default=10,
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
 
@@ -722,16 +722,13 @@ def main():
             probability_matrix.masked_fill_(special_tokens_mask, value=0.0)
             masked_indices = torch.bernoulli(probability_matrix).bool()
             labels[~masked_indices] = -100  # We only compute loss on masked tokens
-
             # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
             indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
             inputs[indices_replaced] = self.tokenizer.convert_tokens_to_ids(self.tokenizer.mask_token)
-
             # 10% of the time, we replace masked input tokens with random word
             indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
             random_words = torch.randint(len(self.tokenizer), labels.shape, dtype=torch.long)
             inputs[indices_random] = random_words[indices_random]
-
             # The rest of the time (10% of the time) we keep the masked input tokens unchanged
             return inputs, labels
 
@@ -752,7 +749,6 @@ def main():
         if is_main_process(training_args.local_rank):
             json_log = dict()
             json_log["train"] = all_args
-            # json_log["eval"] = write_eval_args(model_args, training_args)
             json_log["results"] = dict()
             json_log_path = os.path.join(training_args.output_dir, "exp_log.json")
             with open(json_log_path, "w") as f:
@@ -766,7 +762,7 @@ def main():
             else None
         )
         train_result = trainer.train(model_path=model_path)
-        trainer.save_model()  # Saves the tokenizer too for easy upload
+        trainer.save_model()
 
         output_train_file = os.path.join(training_args.output_dir, "train_results.txt")
         if trainer.is_world_process_zero():
@@ -775,26 +771,13 @@ def main():
                 for key, value in sorted(train_result.metrics.items()):
                     logger.info(f"  {key} = {value}")
                     writer.write(f"{key} = {value}\n")
-
-            # Need to save the state, since Trainer.save_model saves only the tokenizer with the model
             trainer.state.save_to_json(os.path.join(training_args.output_dir, "trainer_state.json"))
 
     # Evaluation
     results = {}
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
-
-        results, sts_task_names, sts_scores = trainer.evaluate(eval_senteval_transfer=False, predict_mode=True)
-
-        if dist.is_initialized():
-            output_ls = [None for _ in range(dist.get_world_size())]
-            dist.all_gather_object(output_ls, sts_scores)
-
-            if float(output_ls[0][-1]) > float(output_ls[1][-1]):
-                sts_scores = output_ls[0]
-            else:
-                sts_scores = output_ls[1]
-
+        results = trainer.evaluate()
         output_eval_file = os.path.join(training_args.output_dir, "eval_results.txt")
         if trainer.is_world_process_zero():
             with open(output_eval_file, "w") as writer:
@@ -802,7 +785,6 @@ def main():
                 for key, value in sorted(results.items()):
                     logger.info(f"  {key} = {value}")
                     writer.write(f"{key} = {value}\n")
-
     return results
 
 

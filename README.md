@@ -52,14 +52,32 @@ To train a supervised model, please run
 bash run_sup_bert.sh
 ```
 
-After training, the results on the test set are expected to be printed out in a tabular format:
+## Evaluation
+
+To evaluate the model, please run:
+```bash
+python evaluation.py \
+    --model_name_or_path <model_checkpoint_path> \
+    --mode <dev|test>
 ```
-*** E.g. Supervised model evaluatation ***
+The results are expected to be shown in the following format:
+```
+*** E.g. Supervised model evaluatation results ***
 +-------+-------+-------+-------+-------+--------+---------+-------+
 | STS12 | STS13 | STS14 | STS15 | STS16 |  STSB  |  SICKR  |  Avg. |
 +-------+-------+-------+-------+-------+--------+---------+-------+
 | 77.40 | 85.24 | 80.50 | 86.85 | 82.59 | 84.12  |  80.29  | 82.43 |
 +-------+-------+-------+-------+-------+--------+---------+-------+
+```
+## Well-trained model checkpoints
+We prepare two model checkpoints:
+- [diffaug-semisup-bert-base-uncased](https://huggingface.co/Tianduo/diffaug-semisup-bert-base-uncased)
+- [diffaug-sup-bert-base-uncased](https://huggingface.co/Tianduo/diffaug-sup-bert-base-uncased)
+Here is an example about how to evaluate them on STS tasks:
+```bash
+python evaluation.py \
+    --model_name_or_path Tianduo/diffaug-semisup-bert-base-uncased \
+    --mode test
 ```
 
 

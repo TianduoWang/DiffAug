@@ -62,10 +62,6 @@ class STSEval(object):
         results = {}
         all_sys_scores = []
         all_gs_scores = []
-        all_s1_embs = []
-        all_s2_embs = []
-        pos_s1_embs = []
-        pos_s2_embs = []
         for dataset in self.datasets:
             sys_scores = []
             input1, input2, gs_scores = self.data[dataset]
@@ -77,19 +73,13 @@ class STSEval(object):
                 if len(batch1) == len(batch2) and len(batch1) > 0:
                     enc1 = batcher(params, batch1)
                     enc2 = batcher(params, batch2)
-                    all_s1_embs.append(enc1.detach())
-                    all_s2_embs.append(enc2.detach())
                     for kk in range(enc2.shape[0]):
                         sys_score = self.similarity(enc1[kk], enc2[kk])
                         sys_scores.append(sys_score)
-                        if gs_scores[kk] > 4.4:
-                            pos_s1_embs.append(enc1[kk].unsqueeze(0).detach())
-                            pos_s2_embs.append(enc2[kk].unsqueeze(0).detach())
                         
             all_sys_scores.extend(sys_scores)
             all_gs_scores.extend(gs_scores)
             
-
             results[dataset] = {'pearson': pearsonr(sys_scores, gs_scores),
                                 'spearman': spearmanr(sys_scores, gs_scores),
                                 'nsamples': len(sys_scores),

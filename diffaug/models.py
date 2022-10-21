@@ -49,11 +49,9 @@ class PrefixEncoder(torch.nn.Module):
 
 
 def get_prompt(cls, prefix_token_ids, batch_size, device):
-    # prefix_token_ids: List
     prefix_token_ids = torch.Tensor(prefix_token_ids).long()
     prefix_tokens = prefix_token_ids.unsqueeze(0).expand(batch_size, -1).to(device)
     past_key_values = cls.prefix_encoder(prefix_tokens)
-    # bsz, seqlen, _ = past_key_values.shape
     past_key_values = past_key_values.view(
         batch_size,
         prefix_token_ids.size(0),
@@ -62,7 +60,7 @@ def get_prompt(cls, prefix_token_ids, batch_size, device):
         cls.n_embd
     )
     past_key_values = cls.dropout(past_key_values)
-    past_key_values = past_key_values.permute([2, 0, 3, 1, 4]).split(2) # 12-length tuple with each: (2, bz, head, prefix_len, hid_emb)
+    past_key_values = past_key_values.permute([2, 0, 3, 1, 4]).split(2)
     return past_key_values
 
 
@@ -70,7 +68,6 @@ class MLPLayer(nn.Module):
     """
     Head for getting sentence representations over RoBERTa/BERT's CLS representation.
     """
-
     def __init__(self, config):
         super().__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
@@ -87,7 +84,6 @@ class Similarity(nn.Module):
     """
     Dot product or cosine similarity
     """
-
     def __init__(self, temp):
         super().__init__()
         self.temp = temp
@@ -95,43 +91,6 @@ class Similarity(nn.Module):
 
     def forward(self, x, y):
         return self.cos(x, y) / self.temp
-
-
-class Pooler(nn.Module):
-    """
-    Parameter-free poolers to get the sentence embedding
-    'cls': [CLS] representation with BERT/RoBERTa's MLP pooler.
-    'cls_before_pooler': [CLS] representation without the original MLP pooler.
-    'avg': average of the last layers' hidden states at each token.
-    'avg_top2': average of the last two layers.
-    'avg_first_last': average of the first and the last layers.
-    """
-    def __init__(self, pooler_type):
-        super().__init__()
-        self.pooler_type = pooler_type
-        assert self.pooler_type in ["cls", "cls_before_pooler", "avg", "avg_top2", "avg_first_last"], "unrecognized pooling type %s" % self.pooler_type
-
-    def forward(self, attention_mask, outputs):
-        last_hidden = outputs.last_hidden_state
-        pooler_output = outputs.pooler_output
-        hidden_states = outputs.hidden_states
-
-        if self.pooler_type in ['cls_before_pooler', 'cls']:
-            return last_hidden[:, 0]
-        elif self.pooler_type == "avg":
-            return ((last_hidden * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(-1).unsqueeze(-1))
-        elif self.pooler_type == "avg_first_last":
-            first_hidden = hidden_states[0]
-            last_hidden = hidden_states[-1]
-            pooled_result = ((first_hidden + last_hidden) / 2.0 * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(-1).unsqueeze(-1)
-            return pooled_result
-        elif self.pooler_type == "avg_top2":
-            second_last_hidden = hidden_states[-2]
-            last_hidden = hidden_states[-1]
-            pooled_result = ((last_hidden + second_last_hidden) / 2.0 * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(-1).unsqueeze(-1)
-            return pooled_result
-        else:
-            raise NotImplementedError
 
 
 def get_delta(cls, encoder, enc_template, enc_bs, device, prefix_ids=None):    
@@ -174,8 +133,6 @@ def cl_init(cls, config):
     """
     Contrastive learning class init function.
     """
-    cls.pooler_type = cls.model_args.pooler_type
-    cls.pooler = Pooler(cls.model_args.pooler_type)
     cls.mlp = MLPLayer(config)
     cls.sim = Similarity(temp=cls.model_args.temp)
 
@@ -200,8 +157,6 @@ def cl_forward(cls,
     output_attentions=None,
     output_hidden_states=None,
     return_dict=None,
-    mlm_input_ids=None,
-    mlm_labels=None,
     sup_input_ids=None,
     sup_attention_mask=None,
     stage=None,
@@ -218,33 +173,23 @@ def cl_forward(cls,
         batch_size = input_ids.size(0)
         num_sent = input_ids.size(1)
         # Flatten input for encoding
-        input_ids = input_ids.view((-1, input_ids.size(-1))) # (bs * num_sent, len)
-        attention_mask = attention_mask.view((-1, attention_mask.size(-1))) # (bs * num_sent len)
-        if token_type_ids is not None:
-            token_type_ids = None
-            # token_type_ids = token_type_ids.view((-1, token_type_ids.size(-1))) # (bs * num_sent, len)
-
+        input_ids = input_ids.view((-1, input_ids.size(-1)))
+        attention_mask = attention_mask.view((-1, attention_mask.size(-1)))
         if cls.model_args.use_aux_loss and sup_input_ids is not None:
             assert sup_input_ids is not None
-
             sup_batch_size, sup_num_sent = sup_input_ids.size(0), sup_input_ids.size(1)
             sup_input_ids = sup_input_ids.view(-1, sup_input_ids.size(-1))
             sup_attention_mask = sup_attention_mask.view(-1, sup_attention_mask.size(-1))
-
-
             if sup_input_ids.size(-1) != input_ids.size(-1):
                 length_diff = sup_input_ids.size(-1) - input_ids.size(-1)
                 padding = torch.zeros(batch_size*num_sent, length_diff).long().to(cls.device)
                 input_ids = torch.cat([input_ids, padding], dim=1)
                 attention_mask = torch.cat([attention_mask, padding], dim=1)
             assert sup_input_ids.shape[-1] == input_ids.shape[-1]
-
-
             input_ids = torch.cat([input_ids, sup_input_ids], dim=0)
             attention_mask = torch.cat([attention_mask, sup_attention_mask], dim=0)
         else:
             sup_batch_size, sup_num_sent = 0, 0
-
 
     if cls.model_args.use_prefix:
         prefix_ids = list(range(cls.prefix_len))
@@ -286,7 +231,6 @@ def cl_forward(cls,
     else:
         past_key_values = None
 
-
     # Get raw embeddings
     outputs = encoder(
         input_ids,
@@ -306,8 +250,6 @@ def cl_forward(cls,
         pooler_output = outputs.last_hidden_state[input_ids == cls.mask_token_id]
     else:
         pooler_output = outputs.last_hidden_state[:, 0]
-
-    # restore shape: (bs, num_sent, hid_emb)
     if stage == "1":
         pooler_output = pooler_output.view((batch_size, num_sent, pooler_output.size(-1)))
         attention_mask = attention_mask.view(batch_size, num_sent, -1)
@@ -316,15 +258,15 @@ def cl_forward(cls,
         if sup_input_ids is not None:
             assert cls.model_args.use_aux_loss
             total_unsup_sent = batch_size * num_sent
-            sup_pooler_output = pooler_output[total_unsup_sent:, :].view(sup_batch_size, sup_num_sent, -1) # (bs, num_sent=3, hidden)
-            sup_attention_mask= attention_mask[total_unsup_sent:, :].view(sup_batch_size, sup_num_sent, -1) # (bs, num_sent=3, hidden)
-            pooler_output = pooler_output[:total_unsup_sent, :].view(batch_size, num_sent, -1) # (bs, num_sent=2, hidden)
-            attention_mask = attention_mask[:total_unsup_sent, :].view(batch_size, num_sent, -1) # (bs, num_sent=2, hidden)
+            sup_pooler_output = pooler_output[total_unsup_sent:, :].view(sup_batch_size, sup_num_sent, -1)
+            sup_attention_mask= attention_mask[total_unsup_sent:, :].view(sup_batch_size, sup_num_sent, -1)
+            pooler_output = pooler_output[:total_unsup_sent, :].view(batch_size, num_sent, -1)
+            attention_mask = attention_mask[:total_unsup_sent, :].view(batch_size, num_sent, -1)
         else:
-            pooler_output = pooler_output.view((batch_size, num_sent, pooler_output.size(-1))) # (bs, num_sent, hidden)
+            pooler_output = pooler_output.view((batch_size, num_sent, pooler_output.size(-1)))
             attention_mask = attention_mask.view(batch_size, num_sent, -1)
 
-    # Template denoising (for now assume only for CL)
+    # Template denoising (only for CL)
     if stage == "2" and cls.model_args.apply_template_delta_train:
         if cls.model_args.use_prefix:
             prefix_id_for_one = list(range(cls.prefix_len//2))
@@ -334,7 +276,6 @@ def cl_forward(cls,
         delta, template_len =   get_delta(cls, encoder, cls.enc_template, cls.bs, cls.device, prefix_ids=prefix_id_for_one)
         delta2, template_len2 = get_delta(cls, encoder, cls.enc_template, cls.bs, cls.device, prefix_ids=prefix_id_for_two)
         
-        # attention_mask = attention_mask.view(batch_size, num_sent, -1)
         blen = attention_mask.sum(-1) - template_len
         pooler_output[:, 0, :] -= delta[blen[:, 0]]
         blen2 = attention_mask.sum(-1) - template_len2
@@ -369,7 +310,6 @@ def cl_forward(cls,
             dist.all_gather(tensor_list=z3_list, tensor=z3.contiguous())
             z3_list[dist.get_rank()] = z3
             z3 = torch.cat(z3_list, 0)
-
 
     if stage == "1":
         assert num_sent == 3       
@@ -410,7 +350,6 @@ def cl_forward(cls,
 
     return SequenceClassifierOutput(
         loss=loss,
-        # logits=cos_sim,
         logits=None,
         hidden_states=outputs.hidden_states,
         attentions=outputs.attentions,
@@ -432,10 +371,7 @@ def sentemb_forward(
     return_dict=None,
 ):
 
-    return_dict = return_dict if return_dict is not None else cls.config.use_return_dict
-
     batch_size = input_ids.shape[0]
-
     if cls.model_args.use_prefix:
         prefix_ids = list(range(cls.prefix_len))
         past_key_values = get_prompt(cls, prefix_ids, batch_size, input_ids.device)
@@ -461,21 +397,6 @@ def sentemb_forward(
         pooler_output = outputs.last_hidden_state[input_ids == cls.mask_token_id]
     else:
         pooler_output = outputs.last_hidden_state[:, 0]
-    
-    if cls.model_args.apply_template_delta_infer:
-        if cls.model_args.use_prefix:
-            prefix_id_for_eval = list(range(cls.prefix_len))
-        else:
-            prefix_id_for_eval = None
-        delta, template_len = get_delta(cls, encoder, cls.enc_template, cls.bs, input_ids.device, prefix_ids=prefix_id_for_eval)
-        blen = attention_mask.sum(-1) - template_len
-        pooler_output -= delta[blen]
-
-    if cls.model_args.mlp_eval:
-        pooler_output = cls.mlp(pooler_output)
-
-    if not return_dict:
-        return (outputs[0], pooler_output) + outputs[2:]
 
     return BaseModelOutputWithPoolingAndCrossAttentions(
         pooler_output=pooler_output,
@@ -508,9 +429,6 @@ class BertForCL(BertPreTrainedModel):
         else:
             self.prefix_len = 0
 
-        if self.model_args.do_mlm:
-            self.lm_head = BertLMPredictionHead(config)
-
         cl_init(self, config)
 
     def forward(self,
@@ -525,8 +443,6 @@ class BertForCL(BertPreTrainedModel):
         output_hidden_states=None,
         return_dict=None,
         sent_emb=False,
-        mlm_input_ids=None,
-        mlm_labels=None,
         sup_input_ids=None,
         sup_attention_mask=None,
         stage="2",
@@ -556,8 +472,6 @@ class BertForCL(BertPreTrainedModel):
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
-                mlm_input_ids=mlm_input_ids,
-                mlm_labels=mlm_labels,
                 sup_input_ids=sup_input_ids,
                 sup_attention_mask=sup_attention_mask,
                 stage=stage
@@ -588,9 +502,6 @@ class RobertaForCL(RobertaPreTrainedModel):
             self.n_head = config.num_attention_heads
             self.n_embd = config.hidden_size // config.num_attention_heads
 
-        if self.model_args.do_mlm:
-            self.lm_head = RobertaLMHead(config)
-
         cl_init(self, config)
 
     def forward(self,
@@ -605,8 +516,6 @@ class RobertaForCL(RobertaPreTrainedModel):
         output_hidden_states=None,
         return_dict=None,
         sent_emb=False,
-        mlm_input_ids=None,
-        mlm_labels=None,
         sup_input_ids=None,
         sup_attention_mask=None,
         stage="2"
@@ -636,8 +545,6 @@ class RobertaForCL(RobertaPreTrainedModel):
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
-                mlm_input_ids=mlm_input_ids,
-                mlm_labels=mlm_labels,
                 sup_input_ids=sup_input_ids,
                 sup_attention_mask=sup_attention_mask,
                 stage=stage,

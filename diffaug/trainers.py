@@ -132,13 +132,7 @@ class CLTrainer(Trainer):
         eval_dataset: Optional[Dataset] = None,
         ignore_keys: Optional[List[str]] = None,
         metric_key_prefix: str = "eval",
-        eval_senteval_transfer: bool = False,
-        predict_mode: bool = False,
         ) -> Dict[str, float]:
-
-        # SentEval prepare and batcher
-        def prepare(params, samples):
-            return
 
         def batcher(params, batch):
             input_sentences = [' '.join(s) for s in batch]
@@ -176,80 +170,25 @@ class CLTrainer(Trainer):
             tb.add_row(scores)
             print(tb)
 
-        if not predict_mode:
-            params = {'task_path': PATH_TO_DATA, 'usepytorch': True, 'kfold': 5}
-            params['classifier'] = {'nhid': 0, 'optim': 'rmsprop', 'batch_size': 128, 'tenacity': 3, 'epoch_size': 2}
-
-            se = senteval.engine.SE(params, batcher, prepare, mode='dev')
-            tasks = ['STSBenchmark', 'SICKRelatedness']
-            
-            self.model.eval()
-            results = se.eval(tasks)
-            
-            stsb_spearman = results['STSBenchmark']['dev']['spearman'][0]
-            sickr_spearman = results['SICKRelatedness']['dev']['spearman'][0]
-
-            metrics = {"eval_stsb_spearman": round(stsb_spearman, 5), 
-                       "eval_sickr_spearman": round(sickr_spearman, 5), 
-                       "eval_avg_sts": round((stsb_spearman + sickr_spearman) / 2, 5)}
-            self.log(metrics)
-
-            self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, metrics)
-            return metrics
-        else:
-            params = {'task_path': PATH_TO_DATA, 'usepytorch': True, 'kfold': 5}
-            params['classifier'] = {'nhid': 0, 'optim': 'rmsprop', 'batch_size': 128,
-                                                'tenacity': 3, 'epoch_size': 2}
-
-            se = senteval.engine.SE(params, batcher, prepare)
-            tasks = ['STS12', 'STS13', 'STS14', 'STS15', 'STS16', 'STSBenchmark', 'SICKRelatedness']
-
-            self.model.eval()
-            results = se.eval(tasks)
-
-            sts_task_names = []
-            sts_scores = []
-            for task in tasks:
-                sts_task_names.append(task)
-                if task in results:
-                    if task in ['STS12', 'STS13', 'STS14', 'STS15', 'STS16']:
-                        sts_scores.append("%.2f" % (results[task]['all']['spearman']['all'] * 100))
-                    else:
-                        sts_scores.append("%.2f" % (results[task]['test']['spearman'].correlation * 100))
-                else:
-                    scores.append("0.00")
-            sts_task_names = sts_task_names[:-2] + ['STSB', 'SICKR']
-            sts_task_names.append("Avg.")
-            sts_scores.append("%.2f" % (sum([float(score) for score in sts_scores]) / len(sts_scores)))
-            print_table(sts_task_names, sts_scores)
-
-            stsb_spearman = results['STSBenchmark']['dev']['spearman'][0]
-            sickr_spearman = results['SICKRelatedness']['dev']['spearman'][0]
-            metrics = {"eval_stsb_spearman": round(stsb_spearman, 5), 
-                       "eval_sickr_spearman": round(sickr_spearman, 5), 
-                       "eval_avg_sts": round((stsb_spearman + sickr_spearman) / 2, 5)}
-            self.state.global_step += 125
-            self.log(metrics)
-            return metrics, sts_task_names, sts_scores
+        params = {'task_path': PATH_TO_DATA, 'usepytorch': True, 'kfold': 5}
+        se = senteval.engine.SE(params, batcher, mode='dev')
+        tasks = ['STSBenchmark']
         
+        self.model.eval()
+        results = se.eval(tasks)
+        stsb_spearman = results['STSBenchmark']['dev']['spearman'][0]
+        metrics = {"eval_stsb_spearman": round(stsb_spearman, 5)}
+        self.log(metrics)
+
+        self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, metrics)
+        return metrics
     
     def _save_checkpoint(self, model, trial, metrics=None):
-        """
-        Compared to original implementation, we change the saving policy to
-        only save the best-validation checkpoints.
-        """
-
-        # In all cases, including ddp/dp/deepspeed, self.model is always a reference to the model we
-        # want to save.
-        # assert _model_unwrap(model) is self.model, "internal model should be a reference to self.model"
-
-        # Determine the new best metric / best model checkpoint
         if metrics is not None and self.args.metric_for_best_model is not None:
             metric_to_check = self.args.metric_for_best_model
             if not metric_to_check.startswith("eval_"):
                 metric_to_check = f"eval_{metric_to_check}"
             metric_value = metrics[metric_to_check]
-
             operator = np.greater if self.args.greater_is_better else np.less
             if (
                 self.state.best_metric is None
@@ -259,12 +198,10 @@ class CLTrainer(Trainer):
                 output_dir = self.args.output_dir
                 self.state.best_metric = metric_value
                 self.state.best_model_checkpoint = output_dir
-
                 # Only save model when it is the best one
                 self.save_model(output_dir)
                 if self.deepspeed:
                     self.deepspeed.save_checkpoint(output_dir)
-
                 # Save the Trainer state
                 if self.is_world_process_zero():
                     self.state.save_to_json(os.path.join(output_dir, "trainer_state.json"))
@@ -305,23 +242,16 @@ class CLTrainer(Trainer):
         Setup the optimizer.
         Different from the original implementation, we create 2 optimizers in this function
         """
-        
-        # params = get_parameter_names(self.model, [nn.LayerNorm])
         pnames = [n for n, _ in self.model.named_parameters()]
-
-        # params name: [bert., mlp., classifier., p_mbv, prefix_encoder]
-
         if self.optimizer is None:
             optimizer_grouped_parameters = [
                 {
-                    # Why here didn't add sup_classifier [Only affects semi phase 2]
                     "params": [p for n, p in self.model.named_parameters() 
                                  if (n.startswith("bert.") or n.startswith("roberta.") or n.startswith("mlp.") 
                                   or n.startswith("prefix_encoder.") or n.startswith("sup_class"))],
                     "weight_decay": self.args.weight_decay,
                 }
             ]
-
             optimizer_kwargs = {
                 "betas": (self.args.adam_beta1, self.args.adam_beta2),
                 "eps": self.args.adam_epsilon,
@@ -338,7 +268,6 @@ class CLTrainer(Trainer):
                     "weight_decay": self.args.weight_decay,
                 },
             ]
-
             optimizer_kwargs = {
                 "betas": (self.args.adam_beta1, self.args.adam_beta2),
                 "eps": self.args.adam_epsilon,
@@ -361,7 +290,6 @@ class CLTrainer(Trainer):
             self.lr_scheduler = get_scheduler(
                 self.args.lr_scheduler_type,
                 optimizer=self.optimizer,
-                # num_warmup_steps=self.args.get_warmup_steps(num_training_steps-self.args.phase1_steps),
                 num_warmup_steps=0,
                 num_training_steps=num_training_steps-self.args.phase1_steps \
                                     if self.args.lr1_decay_steps == 0 else
@@ -373,7 +301,6 @@ class CLTrainer(Trainer):
             self.lr_scheduler2 = get_scheduler(
                 self.args.lr_scheduler_type,
                 optimizer=self.optimizer2,
-                # num_warmup_steps=self.args.get_warmup_steps(num_training_steps),
                 num_warmup_steps=0,
                 num_training_steps=num_training_steps-self.args.phase1_steps \
                                     if self.args.lr2_decay_steps == 0 else
@@ -642,13 +569,7 @@ class CLTrainer(Trainer):
         self._globalstep_last_logged = 0
         self._total_flos = self.state.total_flos
         model.zero_grad()
-
         self.control = self.callback_handler.on_train_begin(self.args, self.state, self.control)
-
-        #------------------------
-        # Training truly starts
-        #------------------------
-        
         sup_epoch=0
         #------------------------
         # Stage-1
@@ -733,12 +654,6 @@ class CLTrainer(Trainer):
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                # x = len(self.train_sup_dataset) * self.args.num_train_sup_epochs / (128 * (max_steps - self.args.phase1_steps))
-                # print(x)
-                # print(random.random())
-                # print(random.random())
-                # exit()
-                # if self.args.use_two_datasets and random.random() < x+1:
                 if self.args.use_two_datasets:
                     try:
                         sup_inputs = next(sup_data_iterator)
@@ -755,10 +670,6 @@ class CLTrainer(Trainer):
                         self.model.model_args.use_aux_loss = True
                         inputs["sup_input_ids"] = sup_inputs["input_ids"]
                         inputs["sup_attention_mask"] = sup_inputs["attention_mask"]
-                # else:
-                    # logger.info(self.state.global_step)
-                    # self.model.model_args.use_aux_loss = False
-
                 # ------------------------- #
                 # Train BERT
                 # ------------------------- #
@@ -803,8 +714,7 @@ class CLTrainer(Trainer):
                     logger.info("Early stop due to long no improvements")
                     break   
 
-                # max_steps = self.args.phase1_steps + self.args.lr2_decay_steps
-                if self.state.global_step > max_steps:
+                if self.state.global_step > self.args.max_steps:
                     logger.info("Stop due to reaching max steps")
                     break 
 
@@ -855,7 +765,6 @@ class CLTrainer(Trainer):
         self.log(metrics)
 
         self.control = self.callback_handler.on_train_end(self.args, self.state, self.control)
-        # add remaining tr_loss
         self._total_loss_scalar += tr_loss.item()
 
         return TrainOutput(self.state.global_step, self._total_loss_scalar / self.state.global_step, metrics)
