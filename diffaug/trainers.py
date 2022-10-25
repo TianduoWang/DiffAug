@@ -710,13 +710,13 @@ class CLTrainer(Trainer):
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
-                if self.control.should_epoch_stop or self.control.should_training_stop:
-                    logger.info("Early stop due to long no improvements")
-                    break   
+                # if self.control.should_epoch_stop or self.control.should_training_stop:
+                #     logger.info("Early stop due to long no improvements")
+                #     break   
 
-                if self.state.global_step > self.args.max_steps:
-                    logger.info("Stop due to reaching max steps")
-                    break 
+                # if self.state.global_step > self.args.max_steps:
+                #     logger.info("Stop due to reaching max steps")
+                #     break 
 
             if self.control.should_epoch_stop or self.control.should_training_stop:
                 break
