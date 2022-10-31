@@ -17,7 +17,7 @@ First, install PyTorch on [the official website](https://pytorch.org). All our e
 pip install torch==1.8.1+cu101 torchvision==0.9.1+cu101 torchaudio==0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
 ```
 
-Then run the following script to install the remaining dependencies,
+Then run the following script to install the remaining dependencies:
 ```bash
 pip install -r requirements.txt
 ```
@@ -89,4 +89,15 @@ python evaluation.py \
     --mode test
 ```
 
+## Citation
 
+Please cite our paper if it is helpful to your work:
+
+```bibtex
+@inproceedings{wang2022diffaug,
+   title={Differentiable Data Augmentation for Contrastive Sentence Representation Learning},
+   author={Wang, Tianduo and Lu, Wei},
+   booktitle={Empirical Methods in Natural Language Processing (EMNLP)},
+   year={2022}
+}
+```
