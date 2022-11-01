@@ -1,6 +1,7 @@
 # DiffAug: Differentiable Data Augmentation for Contrastive Sentence Representation Learning
 
-Our code is based on the [SimCSE](https://github.com/princeton-nlp/SimCSE).
+- This repo contains the code and pre-trained model checkpoints for our [EMNLP 2022 paper](https://arxiv.org/abs/2210.16536).
+- Our code is based on the [SimCSE](https://github.com/princeton-nlp/SimCSE).
 
 ## Overview
 
